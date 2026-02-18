@@ -1,0 +1,329 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nextcloud-hooks
+  namespace: nextcloud
+  labels:
+    app.kubernetes.io/name: nextcloud-hooks
+    app.kubernetes.io/instance: nextcloud
+data:
+  apphook.sh: |-
+    #!/bin/bash
+
+    if [[ -f /var/www/html/finished-hooks ]]; then
+      echo "Hooks already executed, skipping"
+      exit 0
+    else
+      echo "Executing hooks"
+
+      ## Whiteboard
+      echo "Installing and configuring whiteboard app"
+      curl -L https://github.com/nextcloud-releases/whiteboard/releases/download/v1.5.6/whiteboard-v1.5.6.tar.gz -o /var/www/tmp/whiteboard.tar.gz
+      tar -xzvf /var/www/tmp/whiteboard.tar.gz -C /var/www/html/custom_apps/
+      php /var/www/html/occ app:enable whiteboard
+      php /var/www/html/occ config:app:set whiteboard collabBackendUrl --value="${WHITEBOARD_URL}"
+      php /var/www/html/occ config:app:set whiteboard jwt_secret_key --value="${WHITEBOARD_JWT_KEY}"
+
+      ## Collabora
+      echo "Installing and configuring collabora app"
+      # curl -L https://github.com/nextcloud-releases/richdocuments/releases/download/v8.7.7/richdocuments-v8.7.7.tar.gz -o /var/www/tmp/richdocuments.tar.gz
+      curl -L https://github.com/nextcloud-releases/richdocuments/releases/download/v9.0.2/richdocuments-v9.0.2.tar.gz -o /var/www/tmp/richdocuments.tar.gz
+      tar -xzvf /var/www/tmp/richdocuments.tar.gz -C /var/www/html/custom_apps/
+      php /var/www/html/occ app:enable richdocuments
+      php /var/www/html/occ config:app:set richdocuments wopi_url --value="${COLLABORA_WOPI_URL}"
+      php /var/www/html/occ config:app:set richdocuments wopi_allowlist --value "${COLLABORA_WOPI_ALLOW}"
+      php /var/www/html/occ richdocuments:activate-config
+
+      ## Deck
+      echo "Installing and configuring deck app"
+      curl -L https://github.com/nextcloud-releases/deck/releases/download/v1.16.3/deck-v1.16.3.tar.gz -o /var/www/tmp/deck.tar.gz
+      tar -xzvf /var/www/tmp/deck.tar.gz -C /var/www/html/custom_apps/
+      php /var/www/html/occ app:enable deck
+
+      ## Calendar
+      echo "Installing and configuring calendar app"
+      curl -L https://github.com/nextcloud-releases/calendar/releases/download/v6.2.0/calendar-v6.2.0.tar.gz -o /var/www/tmp/calendar.tar.gz
+      tar -xzvf /var/www/tmp/calendar.tar.gz -C /var/www/html/custom_apps/
+      php /var/www/html/occ app:enable calendar
+
+      ## Talk
+      curl -L https://github.com/nextcloud-releases/spreed/releases/download/v22.0.9/spreed-v22.0.9.tar.gz -o /var/www/tmp/spreed.tar.gz
+      tar -xzvf /var/www/tmp/spreed.tar.gz -C /var/www/html/custom_apps/
+      php /var/www/html/occ app:enable spreed
+
+      ## Remove unused apps
+      echo "Disabling unused apps"
+      php /var/www/html/occ app:disable firstrunwizard
+      php /var/www/html/occ app:disable weather_status
+
+      echo "Cleaning up"
+      rm -rf /var/www/tmp/* /var/www/html/data/automation/files /var/www/html/core/skeleton/*
+
+      touch /var/www/html/finished-hooks/
+      echo "Hooks executed successfully"
+    fi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nextcloud-mariadb
+  namespace: nextcloud
+  labels:
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/part-of: mariadb
+    app.kubernetes.io/component: primary
+data:
+  my.cnf: |-
+    [mysqld]
+    skip-name-resolve
+    explicit_defaults_for_timestamp
+    basedir=/opt/bitnami/mariadb
+    datadir=/bitnami/mariadb/data
+    plugin_dir=/opt/bitnami/mariadb/plugin
+    port=3306
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    tmpdir=/opt/bitnami/mariadb/tmp
+    max_allowed_packet=16M
+    bind-address=*
+    pid-file=/opt/bitnami/mariadb/tmp/mysqld.pid
+    log-error=/opt/bitnami/mariadb/logs/mysqld.log
+    character-set-server=UTF8
+    collation-server=utf8_general_ci
+    slow_query_log=0
+    long_query_time=10.0
+    binlog_expire_logs_seconds=2592000
+    
+    [client]
+    port=3306
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    default-character-set=UTF8
+    plugin_dir=/opt/bitnami/mariadb/plugin
+    
+    [manager]
+    port=3306
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    pid-file=/opt/bitnami/mariadb/tmp/mysqld.pid
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nextcloud-redis-configuration
+  namespace: nextcloud
+  labels:
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/name: redis
+data:
+  redis.conf: |-
+    # User-supplied common configuration:
+    # Enable AOF https://redis.io/topics/persistence#append-only-file
+    appendonly yes
+    # Disable RDB persistence, AOF persistence already enabled.
+    save ""
+    # End of common configuration
+  master.conf: |-
+    dir /data
+    # User-supplied master configuration:
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+    # End of master configuration
+  replica.conf: |-
+    dir /data
+    # User-supplied replica configuration:
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+    # End of replica configuration
+  users.acl: |-
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nextcloud-redis-health
+  namespace: nextcloud
+  labels:
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/name: redis
+data:
+  ping_readiness_local.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    response=$(
+      timeout -s 15 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_local.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    response=$(
+      timeout -s 15 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    responseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')
+    if [ "$response" != "PONG" ] && [ "$responseFirstWord" != "LOADING" ] && [ "$responseFirstWord" != "MASTERDOWN" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_master.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+    [[ -n "$REDIS_MASTER_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_MASTER_PASSWORD"
+    response=$(
+      timeout -s 15 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_master.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+    [[ -n "$REDIS_MASTER_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_MASTER_PASSWORD"
+    response=$(
+      timeout -s 15 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    responseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')
+    if [ "$response" != "PONG" ] && [ "$responseFirstWord" != "LOADING" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_readiness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_readiness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+  ping_liveness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_liveness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_liveness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nextcloud-redis-scripts
+  namespace: nextcloud
+  labels:
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/name: redis
+data:
+  start-master.sh: |
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    if [[ -f /opt/bitnami/redis/mounted-etc/master.conf ]];then
+        cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf
+    fi
+    if [[ -f /opt/bitnami/redis/mounted-etc/redis.conf ]];then
+        cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+    fi
+    if [[ -f /opt/bitnami/redis/mounted-etc/users.acl ]];then
+        cp /opt/bitnami/redis/mounted-etc/users.acl /opt/bitnami/redis/etc/users.acl
+    fi
+    ARGS=("--port" "${REDIS_PORT}")
+    ARGS+=("--requirepass" "${REDIS_PASSWORD}")
+    ARGS+=("--masterauth" "${REDIS_PASSWORD}")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/master.conf")
+    exec redis-server "${ARGS[@]}"
+  start-replica.sh: |
+    #!/bin/bash
+
+    get_port() {
+        hostname="$1"
+        type="$2"
+
+        port_var=$(echo "${hostname^^}_SERVICE_PORT_$type" | sed "s/-/_/g")
+        port=${!port_var}
+
+        if [ -z "$port" ]; then
+            case $type in
+                "SENTINEL")
+                    echo 26379
+                    ;;
+                "REDIS")
+                    echo 6379
+                    ;;
+            esac
+        else
+            echo $port
+        fi
+    }
+
+    get_full_hostname() {
+        hostname="$1"
+        full_hostname="${hostname}.${HEADLESS_SERVICE}"
+        echo "${full_hostname}"
+    }
+
+    REDISPORT=$(get_port "$HOSTNAME" "REDIS")
+    HEADLESS_SERVICE="nextcloud-redis-headless.nextcloud.svc.cluster.local"
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+    if [[ -f /opt/bitnami/redis/mounted-etc/replica.conf ]];then
+        cp /opt/bitnami/redis/mounted-etc/replica.conf /opt/bitnami/redis/etc/replica.conf
+    fi
+    if [[ -f /opt/bitnami/redis/mounted-etc/redis.conf ]];then
+        cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+    fi
+    if [[ -f /opt/bitnami/redis/mounted-etc/users.acl ]];then
+        cp /opt/bitnami/redis/mounted-etc/users.acl /opt/bitnami/redis/etc/users.acl
+    fi
+
+    echo "" >> /opt/bitnami/redis/etc/replica.conf
+    echo "replica-announce-port $REDISPORT" >> /opt/bitnami/redis/etc/replica.conf
+    echo "replica-announce-ip $(get_full_hostname "$HOSTNAME")" >> /opt/bitnami/redis/etc/replica.conf
+    ARGS=("--port" "${REDIS_PORT}")
+    ARGS+=("--replicaof" "${REDIS_MASTER_HOST}" "${REDIS_MASTER_PORT_NUMBER}")
+    ARGS+=("--requirepass" "${REDIS_PASSWORD}")
+    ARGS+=("--masterauth" "${REDIS_MASTER_PASSWORD}")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/replica.conf")
+    exec redis-server "${ARGS[@]}"

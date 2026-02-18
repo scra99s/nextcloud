@@ -1,0 +1,345 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nextcloud-collabora
+  namespace: nextcloud
+  labels:
+    app.kubernetes.io/name: collabora
+    app.kubernetes.io/instance: nextcloud
+spec:
+  minReadySeconds: 0
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: collabora
+      app.kubernetes.io/instance: nextcloud
+  template:
+    metadata:
+      annotations:
+        confighash: config-a624a3a9f800f896baee63d0d8bf41bb
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+      labels:
+        app.kubernetes.io/name: collabora
+        app.kubernetes.io/instance: nextcloud
+    spec:
+      terminationGracePeriodSeconds: 60
+      serviceAccountName: default
+      securityContext:
+        {}
+      containers:
+        - name: collabora
+          securityContext:
+            {}
+          image: "collabora/code:25.04.7.2.1"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9980
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /
+              port: 9980
+              scheme: HTTP
+            failureThreshold: 30
+            periodSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9980
+              scheme: HTTP
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 30
+            successThreshold: 1
+            failureThreshold: 4
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9980
+              scheme: HTTP
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 30
+            successThreshold: 1
+            failureThreshold: 2
+          env:
+            - name: extra_params
+              value: "--o:ssl.enable=false --o:ssl.termination=true"
+            - name: username
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-collabora
+                  key: username
+            - name: password
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-collabora
+                  key: password
+          resources:
+            {}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: nextcloud-ca-store
+              mountPath: /etc/ssl/certs
+            - name: nextcloud-ca
+              mountPath: /usr/local/share/ca-certificates/rootca.crt
+              subPath: rootca.crt
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: nextcloud-ca-store
+          persistentVolumeClaim:
+            claimName: nextcloud-ca-store
+        - name: nextcloud-ca
+          secret:
+            secretName: nextcloud-ca
+            defaultMode: 0644
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nextcloud-whiteboard
+  namespace: nextcloud
+  labels:
+    app.kubernetes.io/name: whiteboard
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/component: app
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: whiteboard
+      app.kubernetes.io/instance: nextcloud
+      app.kubernetes.io/component: app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: whiteboard
+        app.kubernetes.io/instance: nextcloud
+        app.kubernetes.io/component: app
+    spec:
+      containers:
+        - name: whiteboard
+          image: ghcr.io/nextcloud-releases/whiteboard:stable
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NEXTCLOUD_URL
+              value: "http://nextcloud.main.system"
+            - name: REDIS_URL
+              value: redis://:$(REDIS_HOST_PASSWORD)@nextcloud-redis-master:6379/0
+            - name: STORAGE_STRATEGY
+              value: "redis"
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-whiteboard
+                  key: whiteboard-jwt-key
+            - name: REDIS_HOST_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-redis
+                  key: redis-password
+          resources:
+            {}
+          ports:
+            - name: whiteboard-http
+              containerPort: 3002
+              protocol: TCP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nextcloud
+  namespace: nextcloud
+  labels:
+    app.kubernetes.io/name: nextcloud
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/component: app
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nextcloud
+      app.kubernetes.io/instance: nextcloud
+      app.kubernetes.io/component: app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nextcloud
+        app.kubernetes.io/instance: nextcloud
+        app.kubernetes.io/component: app
+        nextcloud-redis-client: "true"
+      annotations:
+        nextcloud-config-hash: 8266a725d5474acb6adbf9f0609a3494dc3340a3ac306db90eac9ddb1b851960
+        php-config-hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+        hooks-hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+    spec:
+      containers:
+        - name: nextcloud
+          image: docker.io/library/nextcloud:32.0.6-apache
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SQLITE_DATABASE
+              value: "nextcloud"
+            - name: NEXTCLOUD_TRUSTED_DOMAINS
+              value: nextcloud.main.system
+            - name: NEXTCLOUD_DATA_DIR
+              value: "/var/www/html/data"
+            - name: REDIS_HOST
+              value: nextcloud-redis-master
+            - name: REDIS_HOST_PORT
+              value: "6379"
+            - name: COLLABORA_WOPI_URL
+              value: "https://collabora.main.system"
+            - name: COLLABORA_WOPI_ALLOW
+              value: "0.0.0.0/0"
+            - name: WHITEBOARD_URL
+              value: "https://nextcloud.main.system/whiteboard"
+            - name: OVERWRITEPROTOCOL
+              value: https
+            - name: WHITEBOARD_JWT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-whiteboard
+                  key: whiteboard-jwt-key
+            - name: NEXTCLOUD_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud
+                  key: nextcloud-username
+            - name: NEXTCLOUD_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud
+                  key: nextcloud-password
+            - name: REDIS_HOST_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-redis
+                  key: redis-password
+          resources:
+            {}
+          volumeMounts:
+            - name: nextcloud-main
+              mountPath: /var/www/
+              subPath: root
+            - name: nextcloud-main
+              mountPath: /var/www/html
+              subPath: html
+            - name: nextcloud-main
+              mountPath: /var/www/html/data
+              subPath: data
+            - name: nextcloud-main
+              mountPath: /var/www/html/config
+              subPath: config
+            - name: nextcloud-main
+              mountPath: /var/www/html/custom_apps
+              subPath: custom_apps
+            - name: nextcloud-main
+              mountPath: /var/www/tmp
+              subPath: tmp
+            - name: nextcloud-main
+              mountPath: /var/www/html/themes
+              subPath: themes
+            - name: nextcloud-hooks
+              mountPath: /docker-entrypoint-hooks.d/post-installation/apphook.sh
+              subPath: apphook.sh
+            - name: nextcloud-ca-store
+              mountPath: /etc/ssl/certs
+            - name: nextcloud-ca
+              mountPath: /usr/local/share/ca-certificates/rootca.crt
+              subPath: rootca.crt
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /status.php
+              port:  80
+              httpHeaders:
+              - name: Host
+                value: "nextcloud.main.system"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /status.php
+              port:  80
+              httpHeaders:
+              - name: Host
+                value: "nextcloud.main.system"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+      initContainers:
+        - name: update-ca-certificates
+          image: docker.io/library/nextcloud:32.0.6-apache
+          command:
+            - sh
+            - -c
+            - |
+              update-ca-certificates && \
+              cp -r /etc/ssl/certs/* /ca-store/
+          volumeMounts:
+            - name: nextcloud-ca
+              mountPath: /usr/local/share/ca-certificates/rootca.crt
+              subPath: rootca.crt
+            - name: nextcloud-ca-store
+              mountPath: /ca-store
+        - name: mariadb-isalive
+          image: docker.io/bitnamilegacy/mariadb:11.4.6-debian-12-r0
+          resources:
+            {}
+          securityContext:
+            {}
+          env:
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-db
+                  key: db-username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-db
+                  key: db-password
+          command:
+            - "sh"
+            - "-c"
+            - until mysql --host=nextcloud-mariadb --user=${MYSQL_USER} --password=${MYSQL_PASSWORD} --execute="SELECT 1;"; do echo waiting for mysql; sleep 2; done;
+      volumes:
+        - name: nextcloud-main
+          persistentVolumeClaim:
+            claimName: nextcloud-nextcloud
+        - name: nextcloud-hooks
+          configMap:
+            name: nextcloud-hooks
+            defaultMode: 0755
+        - name: nextcloud-ca-store
+          persistentVolumeClaim:
+            claimName: nextcloud-ca-store
+        - name: nextcloud-ca
+          secret:
+            secretName: nextcloud-ca
+            defaultMode: 0644
+      securityContext:
+        fsGroup: 33

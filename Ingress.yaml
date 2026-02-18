@@ -1,0 +1,99 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nextcloud
+  namespace: nextcloud
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10g"
+  labels:
+    app.kubernetes.io/name: nextcloud
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/component: app
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - nextcloud.main.system
+      secretName: nextcloud-tls
+  rules:
+    - host: nextcloud.main.system
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nextcloud
+                port:
+                  number: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nextcloud-collabora
+  namespace: nextcloud
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10g"
+  labels:
+    app.kubernetes.io/name: nextcloud-collabora
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/component: app
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - collabora.main.system
+      secretName: nextcloud-tls
+  rules:
+    - host: collabora.main.system
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nextcloud-collabora
+                port:
+                  number: 9980
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nextcloud-whiteboard
+  namespace: nextcloud
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10g"
+  labels:
+    app.kubernetes.io/name: nextcloud-whiteboard
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/component: app
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - nextcloud.main.system
+      secretName: nextcloud-tls
+  rules:
+    - host: nextcloud.main.system
+      http:
+        paths:
+          - path: /whiteboard/(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: nextcloud-whiteboard
+                port:
+                  number: 3002

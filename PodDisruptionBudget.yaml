@@ -1,0 +1,72 @@
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nextcloud-mariadb
+  namespace: nextcloud
+  labels:
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/part-of: mariadb
+    app.kubernetes.io/component: primary
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: nextcloud
+      app.kubernetes.io/name: mariadb
+      app.kubernetes.io/component: primary
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nextcloud-postgresql
+  namespace: nextcloud
+  labels:
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: primary
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: nextcloud
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/component: primary
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nextcloud-redis-master
+  namespace: nextcloud
+  labels:
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: master
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: nextcloud
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/component: master
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nextcloud-redis-replicas
+  namespace: nextcloud
+  labels:
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: replica
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: nextcloud
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/component: replica
