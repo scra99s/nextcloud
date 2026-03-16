@@ -109,10 +109,10 @@ echo "Added group membership mapper with hierarchy filter for /nextcloud"
 
 # Nextcloud
 ## Remove the group prefix "SAML_" from the keycloak saml group
-php occ config:app:set user_saml saml_use_group_prefix --value=0
+# php occ config:app:set user_saml saml_use_group_prefix --value=0
 
 ## Set the group provisioning as the groups already exist in nextcloud
-php occ config:app:set user_saml use_group_mapping --value=1
+# php occ config:app:set user_saml use_group_mapping --value=1
 
 # Assign Nextcloud admin role to nc-admin group
-sudo -u www-data php occ config:app:set user_saml saml_admin_group --value="nc-admin"
+# php occ config:app:set user_saml saml_admin_group --value="nc-admin"
