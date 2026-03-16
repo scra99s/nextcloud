@@ -1,0 +1,8 @@
+---
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: keycloak
+  labels:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/instance: keycloak

@@ -1,0 +1,378 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: keycloak-postgresql
+  namespace: keycloak
+  labels:
+    app.kubernetes.io/instance: keycloak
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: primary
+spec:
+  replicas: 1
+  serviceName: keycloak-postgresql-hl
+  updateStrategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: keycloak
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/component: primary
+  template:
+    metadata:
+      name: keycloak-postgresql
+      labels:
+        app.kubernetes.io/instance: keycloak
+        app.kubernetes.io/name: postgresql
+        app.kubernetes.io/component: primary
+    spec:
+      serviceAccountName: keycloak-postgresql
+      automountServiceAccountToken: false
+      affinity:
+        podAffinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/instance: keycloak
+                    app.kubernetes.io/name: postgresql
+                    app.kubernetes.io/component: primary
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity:
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: Always
+        supplementalGroups: []
+        sysctls: []
+      hostNetwork: false
+      hostIPC: false
+      containers:
+        - name: postgresql
+          image: docker.io/bitnami/postgresql:17.6.0-debian-12-r4
+          imagePullPolicy: "IfNotPresent"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seLinuxOptions: {}
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: POSTGRESQL_PORT_NUMBER
+              value: "5432"
+            - name: POSTGRESQL_VOLUME_DIR
+              value: "/bitnami/postgresql"
+            - name: PGDATA
+              value: "/bitnami/postgresql/data"
+            # Authentication
+            - name: POSTGRES_USER
+              value: "bn_keycloak"
+            - name: POSTGRES_PASSWORD_FILE
+              value: /opt/bitnami/postgresql/secrets/password
+            - name: POSTGRES_POSTGRES_PASSWORD_FILE
+              value: /opt/bitnami/postgresql/secrets/postgres-password
+            - name: POSTGRES_DATABASE
+              value: "bitnami_keycloak"
+            # LDAP
+            - name: POSTGRESQL_ENABLE_LDAP
+              value: "no"
+            # TLS
+            - name: POSTGRESQL_ENABLE_TLS
+              value: "no"
+            # Audit
+            - name: POSTGRESQL_LOG_HOSTNAME
+              value: "false"
+            - name: POSTGRESQL_LOG_CONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_LOG_DISCONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_PGAUDIT_LOG_CATALOG
+              value: "off"
+            # Others
+            - name: POSTGRESQL_CLIENT_MIN_MESSAGES
+              value: "error"
+            - name: POSTGRESQL_SHARED_PRELOAD_LIBRARIES
+              value: "pgaudit"
+          ports:
+            - name: tcp-postgresql
+              containerPort: 5432
+          livenessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "bn_keycloak" -d "dbname=bitnami_keycloak" -h 127.0.0.1 -p 5432
+          readinessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - -e
+                - |
+                  exec pg_isready -U "bn_keycloak" -d "dbname=bitnami_keycloak" -h 127.0.0.1 -p 5432
+                  [ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]
+          resources:
+            limits:
+              cpu: 150m
+              ephemeral-storage: 2Gi
+              memory: 192Mi
+            requests:
+              cpu: 100m
+              ephemeral-storage: 50Mi
+              memory: 128Mi
+          volumeMounts:
+            - name: empty-dir
+              mountPath: /tmp
+              subPath: tmp-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/postgresql/conf
+              subPath: app-conf-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/postgresql/tmp
+              subPath: app-tmp-dir
+            - name: postgresql-password
+              mountPath: /opt/bitnami/postgresql/secrets/
+            - name: dshm
+              mountPath: /dev/shm
+            - name: data
+              mountPath: /bitnami/postgresql
+      volumes:
+        - name: empty-dir
+          emptyDir: {}
+        - name: postgresql-password
+          secret:
+            secretName: keycloak-postgresql
+        - name: dshm
+          emptyDir:
+            medium: Memory
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: data
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: "8Gi"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: keycloak
+  namespace: keycloak
+  labels:
+    app.kubernetes.io/instance: keycloak
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/component: keycloak
+    app.kubernetes.io/part-of: keycloak
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  podManagementPolicy: Parallel
+  serviceName: keycloak-headless
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: keycloak
+      app.kubernetes.io/name: keycloak
+      app.kubernetes.io/component: keycloak
+      app.kubernetes.io/part-of: keycloak
+  template:
+    metadata:
+      annotations:
+        checksum/configmap-env-vars: 5471f65aa1b1a4063c28886c2d5ad2f78da56267be4be4aa15878df529525adf
+        checksum/secrets: 81046951b42fafacc883450ed575f16d8557c9e89bf8a6bf55cbf76150825675
+      labels:
+        app.kubernetes.io/instance: keycloak
+        app.kubernetes.io/name: keycloak
+        app.kubernetes.io/component: keycloak
+        app.kubernetes.io/part-of: keycloak
+    spec:
+      serviceAccountName: keycloak
+      automountServiceAccountToken: true
+      affinity:
+        podAffinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/instance: keycloak
+                    app.kubernetes.io/name: keycloak
+                    app.kubernetes.io/component: keycloak
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity:
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: Always
+        supplementalGroups: []
+        sysctls: []
+      enableServiceLinks: true
+      initContainers:
+        - name: prepare-write-dirs
+          image: docker.io/bitnami/keycloak:26.3.3-debian-12-r0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seLinuxOptions: {}
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 150m
+              ephemeral-storage: 2Gi
+              memory: 192Mi
+            requests:
+              cpu: 100m
+              ephemeral-storage: 50Mi
+              memory: 128Mi
+          command:
+            - /bin/bash
+          args:
+            - -ec
+            - |
+              . /opt/bitnami/scripts/liblog.sh
+        
+              info "Copying writable dirs to empty dir"
+              # In order to not break the application functionality we need to make some
+              # directories writable, so we need to copy it to an empty dir volume
+              cp -r --preserve=mode,timestamps /opt/bitnami/keycloak/lib/quarkus /emptydir/app-quarkus-dir
+              cp -r --preserve=mode,timestamps /opt/bitnami/keycloak/data /emptydir/app-data-dir
+              cp -r --preserve=mode,timestamps /opt/bitnami/keycloak/providers /emptydir/app-providers-dir
+              cp -r --preserve=mode,timestamps /opt/bitnami/keycloak/themes /emptydir/app-themes-dir
+              info "Copy operation completed"
+          volumeMounts:
+           - name: empty-dir
+             mountPath: /emptydir
+      containers:
+        - name: keycloak
+          image: docker.io/bitnami/keycloak:26.3.3-debian-12-r0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seLinuxOptions: {}
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+          envFrom:
+            - configMapRef:
+                name: keycloak-env-vars
+          resources:
+            limits:
+              cpu: 750m
+              ephemeral-storage: 2Gi
+              memory: 768Mi
+            requests:
+              cpu: 500m
+              ephemeral-storage: 50Mi
+              memory: 512Mi
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: discovery
+              containerPort: 7800
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 120
+            periodSeconds: 1
+            successThreshold: 1
+            timeoutSeconds: 5
+            httpGet:
+              path: /health/live
+              port: 9000
+              scheme: HTTP
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+            httpGet:
+              path: /health/ready
+              port: 9000
+              scheme: HTTP
+          volumeMounts:
+            - name: empty-dir
+              mountPath: /tmp
+              subPath: tmp-dir
+            - name: empty-dir
+              mountPath: /bitnami/keycloak
+              subPath: app-volume-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/keycloak/conf
+              subPath: app-conf-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/keycloak/lib/quarkus
+              subPath: app-quarkus-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/keycloak/data
+              subPath: app-data-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/keycloak/providers
+              subPath: app-providers-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/keycloak/themes
+              subPath: app-themes-dir
+            - name: keycloak-secrets
+              mountPath: /opt/bitnami/keycloak/secrets
+      volumes:
+        - name: empty-dir
+          emptyDir: {}
+        - name: keycloak-secrets
+          projected:
+            sources:
+              - secret:
+                  name: keycloak
+              - secret:
+                  name: keycloak-postgresql
+                  items:
+                    - key: password
+                      path: db-password

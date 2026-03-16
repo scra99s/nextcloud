@@ -52,6 +52,11 @@ data:
       tar -xzvf /var/www/tmp/spreed.tar.gz -C /var/www/html/custom_apps/
       php /var/www/html/occ app:enable spreed
 
+      # User SAML
+      curl -L https://github.com/nextcloud-releases/user_saml/releases/download/v7.1.3/user_saml-v7.1.3.tar.gz -o /var/www/tmp/user_saml.tar.gz
+      tar -xzvf /var/www/tmp/user_saml.tar.gz -C /var/www/html/custom_apps/
+      php /var/www/html/occ app:enable user_saml
+
       ## Remove unused apps
       echo "Disabling unused apps"
       php /var/www/html/occ app:disable firstrunwizard

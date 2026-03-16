@@ -48,7 +48,8 @@ subjectAltName = @alt_names
 [alt_names]
 DNS.1 = collabora.main.system
 DNS.2 = nextcloud.main.system
-DNS.3 = *.main.system
+DNS.3 = keycloak.main.system
+DNS.4 = *.main.system
 EOF
 
 echo "==> Generating CSR with SAN"

@@ -2,10 +2,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: collabora
+  name: nextcloud-collabora
   namespace: nextcloud
   labels:
-    app.kubernetes.io/name: collabora
+    app.kubernetes.io/name: nextcloud-collabora
     app.kubernetes.io/instance: nextcloud
 spec:
   type: ClusterIP
@@ -15,7 +15,7 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app.kubernetes.io/name: collabora
+    app.kubernetes.io/name: nextcloud-collabora
     app.kubernetes.io/instance: nextcloud
 
 ---

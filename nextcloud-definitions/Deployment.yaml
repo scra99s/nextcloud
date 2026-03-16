@@ -5,7 +5,7 @@ metadata:
   name: nextcloud-collabora
   namespace: nextcloud
   labels:
-    app.kubernetes.io/name: collabora
+    app.kubernetes.io/name: nextcloud-collabora
     app.kubernetes.io/instance: nextcloud
 spec:
   minReadySeconds: 0
@@ -17,7 +17,7 @@ spec:
       maxUnavailable: 0
   selector:
     matchLabels:
-      app.kubernetes.io/name: collabora
+      app.kubernetes.io/name: nextcloud-collabora
       app.kubernetes.io/instance: nextcloud
   template:
     metadata:
@@ -25,7 +25,7 @@ spec:
         confighash: config-a624a3a9f800f896baee63d0d8bf41bb
         cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
       labels:
-        app.kubernetes.io/name: collabora
+        app.kubernetes.io/name: nextcloud-collabora
         app.kubernetes.io/instance: nextcloud
     spec:
       terminationGracePeriodSeconds: 60
@@ -135,6 +135,11 @@ spec:
           env:
             - name: NEXTCLOUD_URL
               value: "http://nextcloud.main.system"
+            - name: REDIS_HOST_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-redis
+                  key: redis-password
             - name: REDIS_URL
               value: redis://:$(REDIS_HOST_PASSWORD)@nextcloud-redis-master:6379/0
             - name: STORAGE_STRATEGY
@@ -144,11 +149,6 @@ spec:
                 secretKeyRef:
                   name: nextcloud-whiteboard
                   key: whiteboard-jwt-key
-            - name: REDIS_HOST_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: nextcloud-redis
-                  key: redis-password
           resources:
             {}
           ports:
