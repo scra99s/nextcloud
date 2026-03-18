@@ -230,6 +230,20 @@ spec:
                 secretKeyRef:
                   name: nextcloud-redis
                   key: redis-password
+            - name: MYSQL_HOST
+              value: nextcloud-mariadb
+            - name: MYSQL_DATABASE
+              value: "nextcloud"
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-db
+                  key: db-username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-db
+                  key: db-password
           resources:
             {}
           volumeMounts:

@@ -1,0 +1,63 @@
+---
+# Remove this to use MariaDB instead of SQLite from the Nextcloud Deployment
+          env:
+            - name: SQLITE_DATABASE
+              value: "nextcloud"
+---
+# Add this to the Nextcloud Deployment to connect it to the MariaDB database
+# Also update the init container env in the Nextcloud Deployment
+          env:
+            - name: MYSQL_HOST
+              value: nextcloud-mariadb
+            - name: MYSQL_DATABASE
+              value: "nextcloud"
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-mariadb
+                  key: mariadb-username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-mariadb
+                  key: mariadb-password
+  
+---
+# update mariadb-secret.yaml to match the following:
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nextcloud-mariadb
+  namespace: nextcloud
+  labels:
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/part-of: mariadb
+type: Opaque
+data:
+  mariadb-username: "bmV4dGNsb3Vk"
+  mariadb-password: "SFFhbmNyNEFIN0pEc2VBYg=="
+  mariadb-root-password: "Z0FlWVlJT1hJaw=="
+
+---
+# Delete Secret name: nextcloud-db
+# Delete Secret name: nextcloud-postgresql
+# Delete NetworkPolicy name: nextcloud-postgresql
+# Delete Service name: nextcloud-postgresql-hl
+# Delete Service name nextcloud-postgresql
+# Delete ServiceAccount name: nextcloud-postgresql
+# Delete StatefulSet name: nextcloud-postgresql
+# Delete PodDisruptionBudget name: nextcloud-postgresql
+
+---
+#look at adding this for containers that don't need api access
+containers:
+- name: app
+  image: myimage
+  securityContext: {}
+automountServiceAccountToken: false
+
+# and
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000 

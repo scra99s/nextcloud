@@ -91,53 +91,6 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: nextcloud-postgresql-hl
-  namespace: nextcloud
-  labels:
-    app.kubernetes.io/instance: nextcloud
-    app.kubernetes.io/name: postgresql
-    app.kubernetes.io/component: primary
-  annotations:
-spec:
-  type: ClusterIP
-  clusterIP: None
-  publishNotReadyAddresses: true
-  ports:
-    - name: tcp-postgresql
-      port: 5432
-      targetPort: tcp-postgresql
-  selector:
-    app.kubernetes.io/instance: nextcloud
-    app.kubernetes.io/name: postgresql
-    app.kubernetes.io/component: primary
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: nextcloud-postgresql
-  namespace: nextcloud
-  labels:
-    app.kubernetes.io/instance: nextcloud
-    app.kubernetes.io/name: postgresql
-    app.kubernetes.io/component: primary
-spec:
-  type: ClusterIP
-  sessionAffinity: None
-  ports:
-    - name: tcp-postgresql
-      port: 5432
-      targetPort: tcp-postgresql
-      nodePort: null
-  selector:
-    app.kubernetes.io/instance: nextcloud
-    app.kubernetes.io/name: postgresql
-    app.kubernetes.io/component: primary
-
----
-apiVersion: v1
-kind: Service
-metadata:
   name: nextcloud-redis-headless
   namespace: nextcloud
   labels:
