@@ -1,6 +1,7 @@
 _OCC="php /var/www/html/occ"
 
 # $_OCC db:add-missing-indices
+# $_OCC maintenance:repair --include-expensive
 
 function configure_saml() {
   local samlProfile=""

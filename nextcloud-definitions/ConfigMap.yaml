@@ -63,7 +63,13 @@ data:
       php /var/www/html/occ app:disable weather_status
 
       echo "Cleaning up"
-      rm -rf /var/www/tmp/* /var/www/html/data/automation/files /var/www/html/core/skeleton/*
+      rm -rf /var/www/tmp/*
+
+      echo "Perform database maintenance"
+      php /var/www/html/occ config:system:set default_phone_region --value="AU"
+      php /var/www/html/occ db:add-missing-indices
+      php /var/www/html/occ maintenance:repair --include-expensive
+      php /var/www/html/occ config:system:set trusted_proxies 0 --value="172.21.0.0/16"
 
       touch /var/www/html/finished-hooks/
       echo "Hooks executed successfully"

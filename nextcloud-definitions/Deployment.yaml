@@ -1,3 +1,66 @@
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nextcloud-imaginary
+  namespace: nextcloud
+  labels:
+    app.kubernetes.io/name: nextcloud
+    app.kubernetes.io/instance: nextcloud
+    app.kubernetes.io/component: imaginary
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nextcloud
+      app.kubernetes.io/instance: nextcloud
+      app.kubernetes.io/component: imaginary
+  template:
+    metadata:
+      annotations:
+        {}
+      labels:
+        app.kubernetes.io/name: nextcloud
+        app.kubernetes.io/instance: nextcloud
+        app.kubernetes.io/component: imaginary
+    spec:
+      containers:
+        - name: imaginary
+          image: "docker.io/h2non/imaginary:1.2.4"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PORT
+              value: "9000"
+          ports:
+            - name: http
+              containerPort: 9000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTP
+            failureThreshold: 3
+            successThreshold: 1
+            periodSeconds: 10
+            timeoutSeconds: 1
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTP
+            failureThreshold: 3
+            successThreshold: 1
+            periodSeconds: 10
+            timeoutSeconds: 1
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -192,8 +255,6 @@ spec:
           image: docker.io/library/nextcloud:32.0.6-apache
           imagePullPolicy: IfNotPresent
           env:
-            - name: SQLITE_DATABASE
-              value: "nextcloud"
             - name: NEXTCLOUD_TRUSTED_DOMAINS
               value: nextcloud.main.system
             - name: NEXTCLOUD_DATA_DIR
