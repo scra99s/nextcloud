@@ -1,118 +1,238 @@
-KEYCLOAK_URL="https://keycloak.example.com/auth"
-REALM="your_realm_name"
-ADMIN_USER="admin"
-ADMIN_PASS="admin_password"
-SAML_CLIENT_ID="nextcloud"
-NEXTCLOUD_PUBLIC_URL="https://nextcloud.example.com"
+echo "[App_Config] Configure application (user_saml)"
+php /var/www/html/occ config:app:set user_saml general-require_provisioned_account --value="0"
+php /var/www/html/occ config:app:set user_saml general-allow_multiple_user_back_ends --value="1"
+php /var/www/html/occ config:app:set user_saml type --value='saml'
+php /var/www/html/occ config:app:set user_saml saml_use_group_prefix --value=0
+php /var/www/html/occ config:app:set user_saml use_group_mapping --value=1
+php /var/www/html/occ config:app:set user_saml saml_admin_group --value="nc-admin"
 
-# === 1. Get access token ===
-TOKEN=$(curl -s -X POST "$KEYCLOAK_URL/realms/master/protocol/openid-connect/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=$ADMIN_USER" \
-  -d "password=$ADMIN_PASS" \
-  -d 'grant_type=password' \
-  -d 'client_id=admin-cli' | jq -r '.access_token')
+samlProfile=$(php /var/www/html/occ saml:config:create)
+php /var/www/html/occ saml:config:set ${samlProfile} \
+  --general-idp0_display_name "Sign in with Keycloak" \
+  --general-is_saml_request_using_post "0" \
+  --general-uid_mapping "email" \
+  --sp-entityId "nextcloud" \
+  --sp-name-id-format "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified" \
+  --security-authnRequestsSigned "0" \
+  --security-signMetadata "0" \
+  --security-wantAssertionsEncrypted "0" \
+  --security-wantAssertionsSigned "0" \
+  --security-wantMessagesSigned "0" \
+  --saml-attribute-mapping-displayName_mapping "email" \
+  --saml-attribute-mapping-email_mapping "email" \
+  --saml-attribute-mapping-group_mapping "role" \
+  --saml-user-filter-require_groups "nc-admin, nc-commander, nc-analyst" \
+  --idp-singleSignOnService.url "${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/saml" \
+  --idp-singleLogoutService.url "${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/saml" \
+  --idp-entityId "${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}" \
+  --idp-x509cert """
+$(cat /opt/apps/keycloak.pem)
+"""
 
-if [ -z "$TOKEN" ]; then
-  echo "Failed to get access token!"
-  exit 1
-fi
+#################################################################
 
-# === 2. Create group hierarchy ===
-GROUP_JSON=$(cat <<EOF
+
+KCADM="/opt/keycloak/keycloak-26.2.4/bin/kcadm.sh"
+KEYCLOAK_LOCAL_URL="https://keycloak.main.system:9080"
+KEYCLOAK_ADMIN=admin
+KEYCLOAK_ADMIN_PASSWORD=changeme
+REALM=system
+
+# Auth to Keycloak default master realm
+${KCADM} config credentials --server ${KEYCLOAK_LOCAL_URL} --realm master --user ${KEYCLOAK_ADMIN} --password ${KEYCLOAK_ADMIN_PASSWORD}
+
+${KCADM} create groups -r $REALM -s name=nextcloud
+${KCADM} create groups/$(${KCADM} get groups -r $REALM --fields id,name | jq -r '.[] | select(.name=="nextcloud") | .id')/children -r $REALM -s name=nc-admin
+${KCADM} create groups/$(${KCADM} get groups -r $REALM --fields id,name | jq -r '.[] | select(.name=="nextcloud") | .id')/children -r $REALM -s name=nc-analyst
+${KCADM} create groups/$(${KCADM} get groups -r $REALM --fields id,name | jq -r '.[] | select(.name=="nextcloud") | .id')/children -r $REALM -s name=nc-commander
+
+function createclient() {
+  KEYCLOAK_CLIENT_NAME=$1
+  KEYCLOAK_ROLES_MAPPER_SINGLE=$2
+
+  cat > /tmp/${KEYCLOAK_CLIENT_NAME}-saml-client.json <<EOF
 {
-  "name": "nextcloud",
-  "children": [
-    { "name": "nc-admin" },
-    { "name": "nc-analyst" },
-    { "name": "nc-commander" }
+  "clientId": "${KEYCLOAK_CLIENT_NAME}",
+  "name": "${KEYCLOAK_CLIENT_NAME} Client",
+  "enabled": true,
+  "protocol": "saml",
+  "frontchannelLogout": true,
+  "attributes": {
+    "saml.authnstatement": "true",
+    "saml.server.signature": "true",
+    "saml.signature.algorithm": "RSA_SHA256",
+    "saml.client.signature": "false",
+    "saml.assertion.signature": "true",
+    "saml_assertion_consumer_url_post": "https://${KEYCLOAK_CLIENT_NAME}.main.system/saml/acs",
+    "saml_assertion_consumer_url_redirect": "https://${KEYCLOAK_CLIENT_NAME}.main.system/saml/acs",
+    "saml.encrypt": "false",
+    "saml_force_name_id_format": "true",
+    "saml_name_id_format": "username",
+    "saml.signing.certificate": "",
+    "saml.signing.private.key": ""
+  },
+  "redirectUris": ["https://${KEYCLOAK_CLIENT_NAME}.main.system/*"],
+  "baseUrl": "https://${KEYCLOAK_CLIENT_NAME}.main.system",
+  "rootUrl": "https://${KEYCLOAK_CLIENT_NAME}.main.system",
+  "adminUrl": "https://${KEYCLOAK_CLIENT_NAME}.main.system/saml/acs",
+  "fullScopeAllowed": false,
+  "defaultClientScopes": ["saml_organization"],
+  "protocolMappers": [
+    {
+      "name": "username",
+      "protocol": "saml",
+      "protocolMapper": "saml-user-property-mapper",
+      "consentRequired": false,
+      "config": {
+        "attribute.nameformat": "Basic",
+        "user.attribute": "username",
+        "attribute.name": "username"
+      }
+    },
+    {
+      "name": "email",
+      "protocol": "saml",
+      "protocolMapper": "saml-user-property-mapper",
+      "consentRequired": false,
+      "config": {
+        "attribute.nameformat": "Basic",
+        "user.attribute": "email",
+        "attribute.name": "email"
+      }
+    },
+    {
+      "name": "firstName",
+      "protocol": "saml",
+      "protocolMapper": "saml-user-property-mapper",
+      "consentRequired": false,
+      "config": {
+        "attribute.nameformat": "Basic",
+        "user.attribute": "firstName",
+        "attribute.name": "firstName"
+      }
+    },
+    {
+      "name": "lastName",
+      "protocol": "saml",
+      "protocolMapper": "saml-user-property-mapper",
+      "consentRequired": false,
+      "config": {
+        "attribute.nameformat": "Basic",
+        "user.attribute": "lastName",
+        "attribute.name": "lastName"
+      }
+    },
+    {
+      "name": "role list",
+      "protocol": "saml",
+      "protocolMapper": "saml-role-list-mapper",
+      "consentRequired": false,
+      "config": {
+        "single": "${KEYCLOAK_ROLES_MAPPER_SINGLE}",
+        "attribute.nameformat": "Basic",
+        "attribute.name": "role"
+      }
+    },
+    {
+      "name": "nextcloud-groups",
+      "protocol": "saml",
+      "protocolMapper": "saml-group-membership-mapper",
+      "consentRequired": false,
+      "config": {
+        "attribute.name": "groups",
+        "full.path": "false",
+        "single": "true",
+        "group.filter": "/nextcloud"
+      }
+    }
   ]
 }
-EOF
-)
 
-curl -s -X POST "$KEYCLOAK_URL/admin/realms/$REALM/groups" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "$GROUP_JSON"
+############################
 
-echo "Created group hierarchy under /nextcloud"
+#!/bin/bash
 
-# === 3. Create the SAML client ===
-CLIENT_JSON=$(cat <<EOF
-{
-    "clientId": "$SAML_CLIENT_ID",
-    "name": "Nextcloud",
-    "description": "Nextcloud SAML Service Provider",
-    "protocol": "saml",
-    "enabled": true,
-    "rootUrl": "$NEXTCLOUD_PUBLIC_URL",
-    "baseUrl": "$NEXTCLOUD_PUBLIC_URL",
-    "redirectUris": ["$NEXTCLOUD_PUBLIC_URL/*"],
-    "adminUrl": "$NEXTCLOUD_PUBLIC_URL/apps/user_saml/saml/acs",
-    "attributes": {
-        "saml.authnstatement": "true",
-        "saml.server.signature": "true",
-        "saml.assertion.signature": "true",
-        "saml.force.post.binding": "true",
-        "saml.client.signature": "false",
-        "saml_name_id_format": "username",
-        "saml_single_logout_service_url_post": "$NEXTCLOUD_PUBLIC_URL/apps/user_saml/saml/sls",
-        "saml_assertion_consumer_url_post": "$NEXTCLOUD_PUBLIC_URL/apps/user_saml/saml/acs",
-        "saml_single_logout_service_url_redirect": "$NEXTCLOUD_PUBLIC_URL/apps/user_saml/saml/sls"
-    },
-    "fullScopeAllowed": false,
-    "frontchannelLogout": true
-}
-EOF
-)
+KCADM="/opt/keycloak/keycloak-26.2.4/bin/kcadm.sh"
+KEYCLOAK_LOCAL_URL="https://keycloak.main.system:9080"
+KEYCLOAK_ADMIN=admin
+KEYCLOAK_ADMIN_PASSWORD=changeme
+LDAP_BIND_PASSWORD="changeme"
 
-curl -s -X POST "$KEYCLOAK_URL/admin/realms/$REALM/clients" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "$CLIENT_JSON"
+# Auth to Keycloak
+${KCADM} config credentials --server ${KEYCLOAK_LOCAL_URL} --realm master --user ${KEYCLOAK_ADMIN} --password ${KEYCLOAK_ADMIN_PASSWORD}
 
-echo "Created SAML client $SAML_CLIENT_ID"
+# Create Realm
+${KCADM} create realms -s realm=system -s enabled=true -s displayName="System SSO Realm"
 
-# === 4. Get the client UUID ===
-CLIENT_UUID=$(curl -s -X GET "$KEYCLOAK_URL/admin/realms/$REALM/clients?clientId=$SAML_CLIENT_ID" \
-  -H "Authorization: Bearer $TOKEN" | jq -r '.[0].id')
+# Create LDAP Binding
+${KCADM} create components -r system -s name=ldap-freeipa -s providerId=ldap -s providerType=org.keycloak.storage.UserStorageProvider \
+  -s 'config.priority=["1"]' \
+  -s 'config.enabled=["true"]' \
+  -s 'config.cachePolicy=["DEFAULT"]' \
+  -s 'config.evictionDay=[""]' \
+  -s 'config.evictionHour=[""]' \
+  -s 'config.evictionMinute=[""]' \
+  -s 'config.maxLifespan=[""]' \
+  -s 'config.batchSizeForSync=["1000"]' \
+  -s 'config.editMode=["READ_ONLY"]' \
+  -s 'config.syncRegistrations=["true"]' \
+  -s 'config.fullSyncPeriod=["3600"]' \
+  -s 'config.changedSyncPeriod=["300"]' \
+  -s 'config.vendor=["other"]' \
+  -s 'config.usernameLDAPAttribute=["uid"]' \
+  -s 'config.rdnLDAPAttribute=["uid"]' \
+  -s 'config.uuidLDAPAttribute=["uid"]' \
+  -s 'config.userObjectClasses=["inetOrgPerson, organizationalPerson"]' \
+  -s "config.connectionUrl=[\"ldap://localhost:389\"]" \
+  -s "config.usersDn=[\"cn=users,cn=accounts,dc=main,dc=system\"]" \
+  -s "config.authType=[\"simple\"]" \
+  -s "config.bindDn=[\"uid=svc-bind,cn=users,cn=accounts,dc=main,dc=system\"]" \
+  -s "config.bindCredential=[\"${LDAP_BIND_PASSWORD}\"]" \
+  -s 'config.trustEmail=["true"]' \
+  -s 'config.searchScope=["2"]' \
+  -s 'config.useTruststoreSpi=["ldapsOnly"]' \
+  -s 'config.connectionPooling=["true"]' \
+  -s 'config.pagination=["true"]' \
+  -s 'config.allowKerberosAuthentication=["false"]' \
+  -s 'config.debug=["false"]' \
+  -s 'config.useKerberosForPasswordAuthentication=["true"]'
 
-# === 5. Add group membership mapper with hierarchy filter ===
-MAPPER_JSON=$(cat <<EOF
-{
-  "name": "nextcloud-groups",
-  "protocol": "saml",
-  "protocolMapper": "saml-group-membership-mapper",
-  "consentRequired": false,
-  "config": {
-    "attribute.name": "groups",
-    "full.path": "false",
-    "single": "false",
-    "group.filter": "/nextcloud"
-  }
-}
-EOF
-)
+# Get LDAP ID
+LDAP_ID=$(${KCADM} get components -r system --fields id,name | grep -B1 "freeipa" | grep "id" | cut -d'"' -f4)
 
-curl -s -X POST "$KEYCLOAK_URL/admin/realms/$REALM/clients/$CLIENT_UUID/protocol-mappers/models" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "$MAPPER_JSON"
+# Create User Mapping
+${KCADM} create components -r system \
+  -s name=group-ldap-mapper \
+  -s providerId=group-ldap-mapper \
+  -s providerType=org.keycloak.storage.ldap.mappers.LDAPStorageMapper \
+  -s parentId=${LDAP_ID} \
+  -s 'config."groups.dn"=["cn=groups,cn=accounts,dc=main,dc=system"]' \
+  -s 'config."group.name.ldap.attribute"=["cn"]' \
+  -s 'config."group.object.classes"=["groupOfNames"]' \
+  -s 'config."preserve.group.inheritance"=["true"]' \
+  -s 'config."membership.ldap.attribute"=["member"]' \
+  -s 'config."membership.attribute.type"=["DN"]' \
+  -s 'config."groups.ldap.filter"=[]' \
+  -s 'config.mode=["LDAP_ONLY"]' \
+  -s 'config."user.roles.retrieve.strategy"=["LOAD_GROUPS_BY_MEMBER_ATTRIBUTE"]' \
+  -s 'config."mapped.group.attributes"=[""]' \
+  -s 'config."drop.non.existing.groups.during.sync"=["false"]'
 
-echo "Added group membership mapper with hierarchy filter for /nextcloud"
+# Create Role Mapping
+${KCADM} create components -r system \
+  -s name=role-ldap-mapper \
+  -s providerId=role-ldap-mapper \
+  -s providerType=org.keycloak.storage.ldap.mappers.LDAPStorageMapper \
+  -s parentId=${LDAP_ID} \
+  -s 'config."roles.dn"=["cn=groups,cn=accounts,dc=main,dc=system"]' \
+  -s 'config."role.name.ldap.attribute"=["cn"]' \
+  -s 'config."role.object.classes"=["groupOfNames"]' \
+  -s 'config."membership.ldap.attribute"=["member"]' \
+  -s 'config."membership.attribute.type"=["DN"]' \
+  -s 'config."roles.ldap.filter"=[]' \
+  -s 'config.mode=["LDAP_ONLY"]' \
+  -s 'config."user.roles.retrieve.strategy"=["LOAD_ROLES_BY_MEMBER_ATTRIBUTE"]' \
+  -s 'config."use.realm.roles.mapping"=["true"]'
 
-# kcadm.sh create groups -r $REALM -s name=nextcloud
-# kcadm.sh create groups/$(kcadm.sh get groups -r $REALM --fields id,name | jq -r '.[] | select(.name=="nextcloud") | .id')/children -r $REALM -s name=nc-admin
-# kcadm.sh create groups/$(kcadm.sh get groups -r $REALM --fields id,name | jq -r '.[] | select(.name=="nextcloud") | .id')/children -r $REALM -s name=nc-analyst
-# kcadm.sh create groups/$(kcadm.sh get groups -r $REALM --fields id,name | jq -r '.[] | select(.name=="nextcloud") | .id')/children -r $REALM -s name=nc-commander
-
-# Nextcloud
-## Remove the group prefix "SAML_" from the keycloak saml group
-# php occ config:app:set user_saml saml_use_group_prefix --value=0
-
-## Set the group provisioning as the groups already exist in nextcloud
-# php occ config:app:set user_saml use_group_mapping --value=1
-
-# Assign Nextcloud admin role to nc-admin group
-# php occ config:app:set user_saml saml_admin_group --value="nc-admin"
+# Sync Users into Keycloak
+${KCADM} create user-storage/${LDAP_ID}/sync?action=triggerFullSync -r system
