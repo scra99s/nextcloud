@@ -1,0 +1,23 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak
+  namespace: "keycloak"
+  labels:
+    app.kubernetes.io/instance: keycloak
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/component: keycloak
+    app.kubernetes.io/part-of: keycloak
+spec:
+  rules:
+    - host: "keycloak.main.system"
+      http:
+        paths:
+          - path: "/"
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: keycloak
+                port:
+                  name: http

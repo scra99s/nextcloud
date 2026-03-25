@@ -24,7 +24,7 @@
                 secretKeyRef:
                   name: nextcloud-mariadb
                   key: mariadb-password
-  
+
 ---
 # update mariadb-secret.yaml to match the following:
 apiVersion: v1
@@ -51,8 +51,6 @@ data:
 # Delete ServiceAccount name: nextcloud-postgresql
 # Delete StatefulSet name: nextcloud-postgresql
 # Delete PodDisruptionBudget name: nextcloud-postgresql
-
-
 
 ---
 apiVersion: apps/v1
@@ -138,7 +136,7 @@ spec:
 
 
 
-
+https://github.com/bitnami/charts.git
 
 
 
@@ -155,4 +153,4 @@ automountServiceAccountToken: false
 # and
           securityContext:
             runAsNonRoot: true
-            runAsUser: 1000 
+            runAsUser: 1000

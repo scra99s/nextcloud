@@ -1,0 +1,109 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adminsync-script
+  namespace: nextcloud
+data:
+  sync_admins.sh: |
+    #!/bin/bash
+
+    ## Description:
+    # - Sync Nextcloud group 'nc-techlead' to admin group
+    # - Sync Nextcloud users not in 'nc-techlead' to be removed from admin group
+    # - Always preserve user adminWhitelist as admin
+    # - Scripts should only run after SAML configuration is done, so that group mapping is in place and nc-techlead group is populated correctly
+    # - Script should run every 2 minutes via cronjob, and should be idempotent to avoid unnecessary changes and potential issues with Nextcloud's caching of group memberships
+
+    ## Issues:
+    # - If a user is added to nc-techlead, but not added to admin group due to caching,
+    #   they will not be added to admin group until the next run of the script, which could
+    #   be up to 2 minutes later. This is a known issue with Nextcloud's caching of group memberships,
+    #   but should be "acceptable" for most use cases.
+    # - Syncing users to keycloak from freeIPA only happens every 2 minutes, so if a user is added to
+    #   nc-techlead in FreeIPA, it could take up to 4 minutes for the user to be added to admin group
+    #   in Nextcloud (2 minutes for user to be synced to keycloak, and then 2 minutes for this script
+    #   to run and sync admin group). This is a known limitation of the current setup, but should be
+    #   "acceptable" for most use cases.
+
+    set -euo pipefail
+
+    _OCC="php /var/www/html/occ"
+    adminWhitelist=("automation")
+
+    ncAdmins=($($_OCC group:list | awk '
+      /^[[:space:]]{2}- admin:/ { in_admin=1; next }      # 2-space indented group header
+      /^[[:space:]]{2}- / && !/^[[:space:]]{2}- admin:/ { in_admin=0 }  # next group header
+      in_admin && /^[[:space:]]{4}-/ {                   # 4-space indented username
+        gsub(/^[[:space:]]{4}-[[:space:]]*/, "")
+        print
+      }
+    '))
+
+    techleadAdmins=($($_OCC group:list | awk '
+      /^[[:space:]]{2}- nc-techlead:/ { in_admin=1; next }      # 2-space indented group header
+      /^[[:space:]]{2}- / && !/^[[:space:]]{2}- nc-techlead:/ { in_admin=0 }  # next group header
+      in_admin && /^[[:space:]]{4}-/ {                   # 4-space indented username
+        gsub(/^[[:space:]]{4}-[[:space:]]*/, "")
+        print
+      }
+    '))
+
+    # Add users in nc-techlead to admin group, but skip whitelisted users
+    for user in "${techleadAdmins[@]}"; do
+      if [[ ! " ${adminWhitelist[@]} " =~ " ${user} " ]]; then
+        if [[ ! " ${ncAdmins[@]} " =~ " ${user} " ]]; then
+          echo "Adding $user to admin group"
+          $_OCC group:adduser admin "$user"
+        else
+          echo "$user is in group nc-techlead but already in admin group, skipping"
+        fi
+      fi
+    done
+
+    # Remove users in not in nc-techlead from admin group, but skip whitelisted users
+    for user in "${ncAdmins[@]}"; do
+      # If user is in whitelist, skip
+      if [[ ! " ${adminWhitelist[@]} " =~ " ${user} " ]]; then
+        # if user is not in nc-techlead, remove from admin group
+        if [[ ! " ${techleadAdmins[@]} " =~ " ${user} " ]]; then
+          echo "Removing $user from admin group"
+          $_OCC group:removeuser admin "$user"
+        else
+          echo "$user is not part of nc-techlead and not already in admin group, skipping"
+        fi
+    done
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nextcloud-adminsync
+  namespace: nextcloud
+spec:
+  schedule: "*/2 * * * *"  # every 2 minutes
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: adminsync
+            image: docker.io/library/nextcloud:32.0.6-apache
+            command: ["/bin/bash","-c","/opt/apps/sync_admins.sh"]
+            volumeMounts:
+              - name: adminsync-volume
+                mountPath: /opt/apps/sync_admins.sh
+                subPath: sync_admins.sh
+              - name: nextcloud-main
+                mountPath: /var/www/html
+          restartPolicy: OnFailure
+          volumes:
+            - name: adminsync-volume
+              configMap:
+                name: adminsync-script
+                defaultMode: 0755
+            - name: nextcloud-main
+              persistentVolumeClaim:
+                claimName: nextcloud-nextcloud
+          securityContext:
+            fsGroup: 33
